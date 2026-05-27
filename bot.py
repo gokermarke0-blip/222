@@ -167,7 +167,7 @@ def main():
             HTML_STATE: [MessageHandler(filters.Document.MimeType("text/html"), receive_html)],
             CSS_STATE: [
                 CallbackQueryHandler(handle_css_choice, pattern="^(yes_css|no_css)$"),
-                MessageHandler(filters.Document.CSS, receive_css)
+                MessageHandler(filters.Document.MimeType("text/css"), receive_css)
             ],
             JS_STATE: [
                 CallbackQueryHandler(handle_js_choice, pattern="^(yes_js|no_js)$"),
