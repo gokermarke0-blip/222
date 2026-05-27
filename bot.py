@@ -164,7 +164,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            HTML_STATE: [MessageHandler(filters.Document.HTML, receive_html)],
+            HTML_STATE: [MessageHandler(filters.Document.MimeType("text/html"), receive_html)],
             CSS_STATE: [
                 CallbackQueryHandler(handle_css_choice, pattern="^(yes_css|no_css)$"),
                 MessageHandler(filters.Document.CSS, receive_css)
