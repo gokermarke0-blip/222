@@ -1,13 +1,10 @@
-name: Run Telegram Bot
+name: Run Video Downloader Bot
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-
-permissions:
-  contents: write    # الصلاحية دي ضرورية جداً عشان البوت يعرف يرفع ويعدل اللينك
 
 jobs:
   run-bot:
@@ -30,6 +27,4 @@ jobs:
     - name: Start Bot
       env:
         TOKEN: ${{ secrets.TOKEN }}
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
       run: python bot.py
