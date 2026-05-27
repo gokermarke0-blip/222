@@ -14,12 +14,11 @@ from telegram.ext import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# مراحل المحادثة
+# مراحل المحادثة (الترتيب الصحيح للأسئلة)
 HTML_STATE, ASK_CSS, CSS_STATE, ASK_JS, JS_STATE = range(5)
 
 TOKEN = os.getenv("TOKEN")
-# جلب اسم المستخدم على جيت هب واسم المستودع ديناميكياً لتوليد الرابط
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY") # بيطلع زي: gokermarke0-blip/222
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY") # بيقرأ يوزر وجيت هب أوتوماتيك لعمل اللينك
 
 def get_page_url():
     """توليد رابط الموقع النهائي بناءً على حسابك ومستودعك"""
@@ -30,8 +29,8 @@ def get_page_url():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "👋 مرحباً بك يا جوكر في بوت دمج ورفع المواقع!\n\n"
-        "📁 من فضلك أرسل لي ملف الـ **HTML** الأساسي للموقع."
+        "👋 مرحباً بك يا جوكر في بوت دمج المواقع والرفع الفوري!\n\n"
+        "📁 من فضلك أرسل لي ملف الـ **HTML** الأساسي أولاً."
     )
     context.user_data.clear()
     return HTML_STATE
@@ -39,17 +38,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     file = update.message.document
     if not file:
-        await update.message.reply_text("❌ أرسل الملف كمستند (Document).")
+        await update.message.reply_text("❌ من فضلك أرسل الملف كمستند (Document).")
         return HTML_STATE
 
     html_file = await file.get_file()
     html_content = await html_file.download_as_bytearray()
     context.user_data['html'] = html_content.decode('utf-8', errors='ignore')
 
-    # إنشاء أزرار نعم ولا
+    # هنا السؤال الأول: يسألك تدمج CSS ولا لأ قبل ما تبعته
     reply_keyboard = [['نعم', 'لا']]
     await update.message.reply_text(
-        "✅ تم استقبال ملف HTML.\n❓ هل تريد دمج ملف **CSS** للموقع؟",
+        "✅ تم استقبال ملف HTML بنجاح.\n\n"
+        "❓ **هل تريد دمج ملف CSS للموقع؟**",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ASK_CSS
@@ -57,16 +57,21 @@ async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def ask_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answer = update.message.text
     if answer == 'نعم':
-        await update.message.reply_text("🎨 ممتاز، أرسل لي ملف الـ **CSS** الآن:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("🎨 تمام، مستني منك ملف الـ **CSS** (أرسله كمستند):", reply_markup=ReplyKeyboardRemove())
         return CSS_STATE
-    else:
-        context.user_data['css'] = "" # فارغ
+    elif answer == 'لا':
+        context.user_data['css'] = "" # فارغ لتخطيه
+        # لو قال لا، ينط علطول ويسأله عن الـ JS
         reply_keyboard = [['نعم', 'لا']]
         await update.message.reply_text(
-            "👍 تمام، تم تخطي الـ CSS.\n❓ هل تريد دمج ملف **JavaScript (JS)**؟",
+            "👍 تم تخطي الـ CSS.\n\n"
+            "❓ **هل تريد دمج ملف JavaScript (JS)؟**",
             reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return ASK_JS
+    else:
+        await update.message.reply_text("❌ من فضلك اختار من الأزرار (نعم أو لا).")
+        return ASK_CSS
 
 async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     file = update.message.document
@@ -78,9 +83,11 @@ async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     css_content = await css_file.download_as_bytearray()
     context.user_data['css'] = css_content.decode('utf-8', errors='ignore')
 
+    # بعد استقبال الـ CSS، يسأله الحين يدمج JS ولا لأ
     reply_keyboard = [['نعم', 'لا']]
     await update.message.reply_text(
-        "✅ تم استقبال الـ CSS.\n❓ هل تريد دمج ملف **JavaScript (JS)**؟",
+        "✅ تم استقبال ملف CSS بنجاح.\n\n"
+        "❓ **هل تريد دمج ملف JavaScript (JS)؟**",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ASK_JS
@@ -88,11 +95,15 @@ async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def ask_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answer = update.message.text
     if answer == 'نعم':
-        await update.message.reply_text("⚡ ممتاز، أرسل لي ملف الـ **JavaScript** الآن:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("⚡ تمام، مستني منك ملف الـ **JavaScript** (أرسله كمستند):", reply_markup=ReplyKeyboardRemove())
         return JS_STATE
-    else:
-        context.user_data['js'] = ""
+    elif answer == 'لا':
+        context.user_data['js'] = "" # فارغ لتخطيه
+        # لو قال لا، يدمج ويطلع اللينك فوراً
         return await finalize_and_deploy(update, context)
+    else:
+        await update.message.reply_text("❌ من فضلك اختار من الأزرار (نعم أو لا).")
+        return ASK_JS
 
 async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     file = update.message.document
@@ -107,19 +118,19 @@ async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await finalize_and_deploy(update, context)
 
 async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("⏳ جاري دمج ملفاتك ورفع الموقع مباشرة على سيرفر جيت هب...", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("⏳ جاري معالجة ودمج ملفاتك وتجهيز رابط الويب السريع...", reply_markup=ReplyKeyboardRemove())
     
     html = context.user_data.get('html', '')
     css = context.user_data.get('css', '')
     js = context.user_data.get('js', '')
 
-    # دمج الأكواد كلها داخل ملف index.html واحد عشان يشتغل فوري
+    # دمج كامل ومنظم
     merged_content = f"""<!DOCTYPE html>
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Deployed Bot Project</title>
+    <title>My Live Project</title>
     <style>
 {css}
     </style>
@@ -132,18 +143,17 @@ async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE
 </body>
 </html>"""
 
-    # كتابة الملف باسم index.html (ده الاسم الإجباري عشان جيت هب يشغله كموقع)
+    # كتابة الملف وحفظه باسم index.html عشان السيرفر يقرأه علطول كموقع ويب
     output_filename = "index.html"
     with open(output_filename, "w", encoding="utf-8") as f:
         f.write(merged_content)
 
-    # هنا جيت هب هيقوم بالباقي، هيرفع الملف الجديد ويمسحه محلياً
     site_url = get_page_url()
     
     await update.message.reply_text(
-        f"🎉 **مبروك يا جوكر! تم دمج ورفع موقعك بنجاح.**\n\n"
-        f"🔗 الرابط المباشر للموقع:\n{site_url}\n\n"
-        f"💡 (انسخ الرابط وابعتة لأي حد يشوف موقعك! قد يحتاج من دقيقة لدقيقتين ليظهر أول مرة بسبب تحديث سيرفر جيت هب).",
+        f"🎉 **تم دمج ورفع موقعك يا جوكر بنجاح!**\n\n"
+        f"🔗 الرابط المباشر لموقعك هو:\n{site_url}\n\n"
+        f"📋 خده كوبي وابعته لأي حد يفتحه من موبايله أو الكمبيوتر وهيشتغل معاه علطول!",
         parse_mode="Markdown"
     )
     
@@ -151,7 +161,7 @@ async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("❌ تم إلغاء العملية الحالية.", reply_markup=ReplyKeyboardRemove())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -161,6 +171,7 @@ def main():
 
     application = Application.builder().token(TOKEN).build()
 
+    # نظام إدارة المحادثة المظبوط بالخطوات
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
