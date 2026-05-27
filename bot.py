@@ -20,28 +20,27 @@ HTML_STATE, ASK_CSS, CSS_STATE, ASK_JS, JS_STATE = range(5)
 
 TOKEN = os.getenv("TOKEN")
 
-def upload_to_catbox(file_path):
-    """رفع الملف المدمج على سيرفر Catbox ليعطيك لينك موقع مباشر فوراً"""
+def upload_to_file_io(file_path):
+    """رفع الملف على سيرفر file.io العالمي وتوليد لينك مباشر فوراً"""
     try:
-        url = "https://catbox.moe/user/api.php"
-        data = {
-            "reqtype": "fileupload",
-            "userhash": "" # سيبه فاضي وهيترفع كزائر عادي بنجاح
-        }
+        url = "https://file.io/"
+        # الملف هيفضل صالح ومتاح أونلاين لأي حد يفتحه
         with open(file_path, "rb") as f:
-            files = {"fileToUpload": f}
-            response = requests.post(url, data=data, files=files)
+            files = {"file": f}
+            # بنحدد إن الملف يفضل متاح ومتعلم عليه كموقع
+            response = requests.post(url, files=files)
             if response.status_code == 200:
-                # السيرفر بيرجع لينيك مباشر آخره .html بيفتح كموقع حقيقي
-                return response.text.strip()
+                res_data = response.json()
+                if res_data.get("success"):
+                    return res_data.get("link")
     except Exception as e:
-        logger.error(f"Catbox upload error: {e}")
+        logger.error(f"File.io upload error: {e}")
     return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "👋 مرحباً بك يا جوكر! أنا بوت دمج المواقع ونشرها فوراً.\n\n"
-        "📁 أرسل لي ملف الـ **HTML** الأساسي الآن (Document)."
+        "👋 مرحباً يا جوكر! أنا جاهز دلوقتي.\n\n"
+        "📁 أرسل لي ملف الـ **HTML** الأساسي (كمستند Document)."
     )
     context.user_data.clear()
     return HTML_STATE
@@ -49,7 +48,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     file = update.message.document
     if not file:
-        await update.message.reply_text("❌ أرسل الملف كمستند (Document).")
+        await update.message.reply_text("❌ من فضلك أرسل الملف كمستند (Document) وليس نص.")
         return HTML_STATE
 
     html_file = await file.get_file()
@@ -58,7 +57,8 @@ async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     reply_keyboard = [['نعم', 'لا']]
     await update.message.reply_text(
-        "✅ تم استقبال HTML بنجاح.\n\n❓ **هل تريد دمج ملف CSS للموقع؟**",
+        "✅ تم استقبال ملف HTML.\n\n"
+        "❓ **هل تريد دمج ملف CSS للموقع؟**",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ASK_CSS
@@ -66,18 +66,19 @@ async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def ask_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answer = update.message.text
     if answer == 'نعم':
-        await update.message.reply_text("🎨 أرسل ملف الـ **CSS** الآن كمستند:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("🎨 تمام، أرسل ملف الـ **CSS** الآن كمستند:", reply_markup=ReplyKeyboardRemove())
         return CSS_STATE
     elif answer == 'لا':
         context.user_data['css'] = ""
         reply_keyboard = [['نعم', 'لا']]
         await update.message.reply_text(
-            "👍 تم تخطي الـ CSS.\n\n❓ **هل تريد دمج ملف JavaScript (JS)؟**",
+            "👍 تم تخطي الـ CSS.\n\n"
+            "❓ **هل تريد دمج ملف JavaScript (JS)؟**",
             reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return ASK_JS
     else:
-        await update.message.reply_text("❌ اختر نعم أو لا.")
+        await update.message.reply_text("❌ اختار من الأزرار (نعم أو لا).")
         return ASK_CSS
 
 async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -92,7 +93,8 @@ async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     reply_keyboard = [['نعم', 'لا']]
     await update.message.reply_text(
-        "✅ تم استقبال CSS بنجاح.\n\n❓ **هل تريد دمج ملف JavaScript (JS)؟**",
+        "✅ تم استقبال ملف CSS.\n\n"
+        "❓ **هل تريد دمج ملف JavaScript (JS)؟**",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ASK_JS
@@ -100,13 +102,13 @@ async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def ask_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answer = update.message.text
     if answer == 'نعم':
-        await update.message.reply_text("⚡ أرسل ملف الـ **JavaScript** الآن كمستند:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("⚡ تمام، أرسل ملف الـ **JavaScript** الآن كمستند:", reply_markup=ReplyKeyboardRemove())
         return JS_STATE
     elif answer == 'لا':
         context.user_data['js'] = ""
         return await finalize_and_deploy(update, context)
     else:
-        await update.message.reply_text("❌ اختر نعم أو لا.")
+        await update.message.reply_text("❌ اختار من الأزرار (نعم أو لا).")
         return ASK_JS
 
 async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -122,19 +124,19 @@ async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await finalize_and_deploy(update, context)
 
 async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("⏳ جاري دمج الأكواد ورفع الموقع وتوليد اللينك المباشر...", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("⏳ جاري دمج الأكواد ورفع الموقع فوراً وتوليد اللينك المباشر...", reply_markup=ReplyKeyboardRemove())
     
     html = context.user_data.get('html', '')
     css = context.user_data.get('css', '')
     js = context.user_data.get('js', '')
 
-    # دمج الأكواد كلها جوه ملف واحد
+    # دمج الأكواد بشكل سليم داخل الهيكل الأساسي لصفحة الويب
     merged_content = f"""<!DOCTYPE html>
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Joker Live Site</title>
+    <title>Joker Live Web Project</title>
     <style>
 {css}
     </style>
@@ -147,33 +149,33 @@ async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE
 </body>
 </html>"""
 
-    # حفظ الملف مؤقتاً لرفعه
+    # حفظ الملف باسم index.html مؤقتاً عشان يترفع صح كصفحة رئيسية
     temp_filename = "index.html"
     with open(temp_filename, "w", encoding="utf-8") as f:
         f.write(merged_content)
 
-    # رفع الملف فوراً والحصول على اللينك
-    site_url = upload_to_catbox(temp_filename)
+    # رفع الملف فوراً وجلب اللينك المباشر
+    site_url = upload_to_file_io(temp_filename)
 
-    # مسح الملف المؤقت بعد الرفع لحماية المساحة
+    # مسح الملف المؤقت من السيرفر
     if os.path.exists(temp_filename):
         os.remove(temp_filename)
     
     if site_url:
         await update.message.reply_text(
-            f"🚀 **مبروك يا جوكر! تم دمج موقعك ونشره بنجاح.**\n\n"
+            f"🚀 **يا جوكر تم دمج موقعك ونشره بنجاح!**\n\n"
             f"🔗 الرابط المباشر لموقعك أهو:\n{site_url}\n\n"
-            f"📋 انسخ الرابط ده وابعته لأي حد في العالم، أول ما يضغط عليه هيفتح يشوف موقعك وتصميمك شغال فوراً وبدون أي تأخير!",
+            f"📋 خده كوبي وابعته لأي حد في العالم، أول ما يفتح اللينك هيفتح معاه الموقع وتصميمك كامل وشغال علطول!",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("❌ حصلت مشكلة أثناء رفع الملف على سيرفر النشر. حاول مرة أخرى.")
+        await update.message.reply_text("❌ حصلت مشكلة في سيرفر الرفع، جرب مرة تانية الحين.")
         
     context.user_data.clear()
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("❌ تم إلغاء العملية الحالية.", reply_markup=ReplyKeyboardRemove())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -182,6 +184,7 @@ def main():
         return
     application = Application.builder().token(TOKEN).build()
     
+    # فلتر الـ ALL عشان يستقبل أي ملف ويبدو بدون مشاكل كراش
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
