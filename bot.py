@@ -12,15 +12,16 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-# إعداد الـ Logs
+# إعداد الـ Logs عشان نشوف الأخطاء
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# مراحل المحادثة
 HTML_STATE, ASK_CSS, CSS_STATE, ASK_JS, JS_STATE = range(5)
 
 TOKEN = os.getenv("TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")  # بيجيب تلقائياً اسم حسابك/المستودع (مثال: gokermarke0-blip/222)
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY") 
 
 def get_page_url():
     if GITHUB_REPOSITORY and "/" in GITHUB_REPOSITORY:
@@ -30,7 +31,7 @@ def get_page_url():
 
 def upload_to_github_api(content, filename="index.html"):
     if not GITHUB_REPOSITORY or not GITHUB_TOKEN:
-        logger.error("❌ عذراً: GITHUB_TOKEN أو GITHUB_REPOSITORY مش مقروءين في السيرفر.")
+        logger.error("❌ ناقص توكن جيت هب أو اسم المستودع في السيرفر")
         return False
         
     url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/contents/{filename}"
@@ -39,7 +40,7 @@ def upload_to_github_api(content, filename="index.html"):
         "Accept": "application/vnd.github.v3+json"
     }
     
-    # محاولة جلب الـ sha للملف لو كان موجود مسبقاً للتحديث عليه
+    # بنشوف لو الملف موجود عشان ناخد الـ sha ونحدثه غصب عنه
     sha = None
     try:
         res = requests.get(url, headers=headers)
@@ -52,7 +53,7 @@ def upload_to_github_api(content, filename="index.html"):
     content_base64 = base64.b64encode(content_bytes).decode("utf-8")
     
     data = {
-        "message": "⚡ المطور جوكر: تحديث الـ index.html عبر البوت",
+        "message": "Update site via Joker Bot",
         "content": content_base64,
         "branch": "main"
     }
@@ -62,19 +63,19 @@ def upload_to_github_api(content, filename="index.html"):
     try:
         put_res = requests.put(url, headers=headers, json=data)
         if put_res.status_code in [200, 201]:
-            logger.info("✅ تم رفع وتحديث الموقع بنجاح!")
+            logger.info("✅ تم الرفع بنجاح!")
             return True
         else:
-            logger.error(f"❌ جيت هب رفض الرفع. السبب: {put_res.text}")
+            logger.error(f"❌ جيت هب رفض: {put_res.text}")
             return False
     except Exception as e:
-        logger.error(f"حدث خطأ أثناء الاتصال بالـ API: {e}")
+        logger.error(f"Exception: {e}")
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "👋 مرحباً بك يا جوكر! أنا بوت دمج المواقع ونشرها فوراً.\n\n"
-        "📁 أرسل لي ملف الـ **HTML** الأساسي الآن (Document)."
+        "👋 مرحباً يا جوكر! أنا جاهز.\n\n"
+        "📁 أرسل لي ملف الـ **HTML** الأساسي دلوقتي كمستند (Document)."
     )
     context.user_data.clear()
     return HTML_STATE
@@ -82,7 +83,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     file = update.message.document
     if not file:
-        await update.message.reply_text("❌ أرسل الملف كمستند (Document).")
+        await update.message.reply_text("❌ أرسل الملف كمستند (Document) مش نص.")
         return HTML_STATE
 
     html_file = await file.get_file()
@@ -91,7 +92,7 @@ async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     reply_keyboard = [['نعم', 'لا']]
     await update.message.reply_text(
-        "✅ تم استقبال HTML بنجاح.\n\n❓ **هل تريد دمج ملف CSS للموقع؟**",
+        "✅ استلمت الـ HTML.\n\n❓ **هل عندك ملف CSS عاوز تدمجه؟**",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ASK_CSS
@@ -99,18 +100,18 @@ async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def ask_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answer = update.message.text
     if answer == 'نعم':
-        await update.message.reply_text("🎨 أرسل ملف الـ **CSS** الآن كمستند:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("🎨 أرسل ملف الـ **CSS** دلوقتي كمستند:", reply_markup=ReplyKeyboardRemove())
         return CSS_STATE
     elif answer == 'لا':
         context.user_data['css'] = ""
         reply_keyboard = [['نعم', 'لا']]
         await update.message.reply_text(
-            "👍 تم تخطي الـ CSS.\n\n❓ **هل تريد دمج ملف JavaScript (JS)؟**",
+            "👍 تمام، من غير CSS.\n\n❓ **هل فيه ملف JavaScript (JS)؟**",
             reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return ASK_JS
     else:
-        await update.message.reply_text("❌ اختر نعم أو لا.")
+        await update.message.reply_text("اختر نعم أو لا.")
         return ASK_CSS
 
 async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -125,7 +126,7 @@ async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     reply_keyboard = [['نعم', 'لا']]
     await update.message.reply_text(
-        "✅ تم استقبال CSS بنجاح.\n\n❓ **هل تريد دمج ملف JavaScript (JS)؟**",
+        "✅ استلمت الـ CSS.\n\n❓ **هل فيه ملف JavaScript (JS)؟**",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return ASK_JS
@@ -133,13 +134,13 @@ async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def ask_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     answer = update.message.text
     if answer == 'نعم':
-        await update.message.reply_text("⚡ أرسل ملف الـ **JavaScript** الآن كمستند:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("⚡ أرسل ملف الـ **JavaScript** كمستند:", reply_markup=ReplyKeyboardRemove())
         return JS_STATE
     elif answer == 'لا':
         context.user_data['js'] = ""
         return await finalize_and_deploy(update, context)
     else:
-        await update.message.reply_text("❌ اختر نعم أو لا.")
+        await update.message.reply_text("اختر نعم أو لا.")
         return ASK_JS
 
 async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -155,18 +156,19 @@ async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await finalize_and_deploy(update, context)
 
 async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("⏳ جاري دمج الأكواد وتحديث موقعك على جيت هب صفحات...", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("⏳ جاري دمج الملفات وتحديث الموقع على جيت هب...", reply_markup=ReplyKeyboardRemove())
     
     html = context.user_data.get('html', '')
     css = context.user_data.get('css', '')
     js = context.user_data.get('js', '')
 
+    # دمج الأكواد كلها في ملف index.html واحد عشان يعرض الصفحة صح
     merged_content = f"""<!DOCTYPE html>
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Joker Live Project</title>
+    <title>Joker Project</title>
     <style>
 {css}
     </style>
@@ -184,13 +186,13 @@ async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if success:
         await update.message.reply_text(
-            f"🚀 **يا جوكر تم دمج أكوادك وتحديث الموقع بنجاح!**\n\n"
-            f"🔗 الرابط المباشر لموقعك هو:\n{site_url}\n\n"
-            f"📋 افتحه دلوقتي وهتلاقي تصميمك الجديد اشتغل علطول وجاب الملف الصح!",
+            f"🚀 **يا جوكر تم دمج الملف ونشره بنجاح!**\n\n"
+            f"🔗 الرابط بتاعك أهو ابعته لأي حد يشوفه:\n{site_url}\n\n"
+            f"📋 ادخل عليه وجرب بنفسك، هتلاقي التصميم الجديد ظهر!",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("❌ جيت هب رفض الرفع. يرجى التأكد من تفعيل صلاحيات (Read and Write permissions) من إعدادات Actions -> General في المستودع.")
+        await update.message.reply_text("❌ جيت هب رفض الرفع، اتأكد إنك غيرت ملف الـ YAML وضفت سطر الـ GITHUB_TOKEN.")
         
     context.user_data.clear()
     return ConversationHandler.END
@@ -205,6 +207,7 @@ def main():
         return
     application = Application.builder().token(TOKEN).build()
     
+    # استخدام filters.Document.ALL عشان ميتفزلكش ويوقف السيرفر
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
