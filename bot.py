@@ -1,221 +1,95 @@
 import os
 import logging
-import requests
-import base64
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler,
-)
+import asyncio
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import yt_dlp
 
-# إعداد الـ Logs
+# إعداد الـ Logs عشان لو فيه أي مشكلة نشوفها
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# مراحل المحادثة
-HTML_STATE, ASK_CSS, CSS_STATE, ASK_JS, JS_STATE = range(5)
-
 TOKEN = os.getenv("TOKEN")
-# التوكن الافتراضي اللي جيت هب بيديه للـ Workflow أوتوماتيك
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY") 
 
-def get_page_url():
-    if GITHUB_REPOSITORY and "/" in GITHUB_REPOSITORY:
-        user, repo = GITHUB_REPOSITORY.split("/")
-        return f"https://{user}.github.io/{repo}/"
-    return "https://gokermarke0-blip.github.io/222/"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🚀 **مرحباً بك يا جوكر في بوت تحميل الفيديوهات السريع!**\n\n"
+        "🎬 ابعتلي لينك أي فيديو من (تيك توك، إنستغرام، يوتيوب، تويتر، فيسبوك، كواي) "
+        "وهنزله لك فوراً وبأعلى جودة متاحة! 🔥",
+        parse_mode="Markdown"
+    )
 
-def upload_to_github_api(content, filename="index.html"):
-    if not GITHUB_REPOSITORY or not GITHUB_TOKEN:
-        logger.error("❌ ناقص توكن جيت هب أو اسم المستودع")
-        return False
-        
-    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/contents/{filename}"
-    headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
+async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
     
-    # جلب الـ SHA للملف القديم عشان نحدث فوقه غصب عنه
-    sha = None
-    try:
-        res = requests.get(url, headers=headers)
-        if res.status_code == 200:
-            sha = res.json().get("sha")
-    except Exception as e:
-        logger.error(f"Error getting file SHA: {e}")
-        
-    content_bytes = content.encode("utf-8")
-    content_base64 = base64.b64encode(content_bytes).decode("utf-8")
-    
-    data = {
-        "message": "Update site via Joker Bot",
-        "content": content_base64,
-        "branch": "main"
+    # التأكد إن المرسل هو لينك فعلاً
+    if not url.startswith(("http://", "https://")):
+        return # لو مش لينك مش هيرد عشان ميزعجش المستخدم
+
+    waiting_message = await update.message.reply_text("⏳ **جاري فحص اللينك وتحميل الفيديو... انتظر ثانية**")
+
+    # إعدادات مكتبة yt-dlp للتحميل بأفضل جودة مدمجة (فيديو وصوت معاً) وحجم مناسب للتليجرام
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best', # بيجيب فيديو بصيغة mp4 جاهز للعرض في التليجرام
+        'outtmpl': 'downloads/%(id)s.%(ext)s', # حفظ الملف في فولدر مؤقت باسم الأيدي بتاعه
+        'max_filesize': 50 * 1024 * 1024, # حد أقصى 50 ميجا عشان قيود التليجرام للبوتات العادية
+        'quiet': True,
+        'no_warnings': True,
     }
-    if sha:
-        data["sha"] = sha
+
+    # تشغيل التحميل في خلفية منفصلة عشان البوت ميهنجش لو كذا حد استخدمه
+    def run_ydl():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            # التأكد من امتداد الملف المناسب
+            if not os.path.exists(filename) and os.path.exists(filename.replace('.mp4', '.mkv')):
+                filename = filename.replace('.mp4', '.mkv')
+            return filename, info.get('title', 'Video')
 
     try:
-        put_res = requests.put(url, headers=headers, json=data)
-        if put_res.status_code in [200, 201]:
-            return True
+        # تنفيذ دالة التحميل بدون تعطيل البوت
+        loop = asyncio.get_running_loop()
+        file_path, video_title = await loop.run_in_executor(None, run_ydl)
+
+        if os.path.exists(file_path):
+            await waiting_message.edit_text("🚀 **جاري رفع الفيديو للتليجرام...**")
+            
+            # إرسال الفيديو كـ Video مش ملف عشان يشتغل جوه الشات علطول
+            with open(file_path, 'rb') as video_file:
+                await update.message.reply_video(
+                    video=video_file,
+                    caption=f"🎬 **{video_title}**\n\n✨ تم التحميل بنجاح بواسطة بوت جوكر!",
+                    supports_streaming=True # تتيح للمستخدم تشغيل الفيديو أثناء التحميل
+                )
+            
+            # مسح الملف فوراً من السيرفر بعد الرفع عشان ميمشيش مساحة السيرفر
+            os.remove(file_path)
+            await waiting_message.delete()
         else:
-            logger.error(f"❌ جيت هب رفض: {put_res.text}")
-            return False
+            await waiting_message.edit_text("❌ عذراً، تعذر العثور على ملف الفيديو بعد تحميله.")
+
+    except yt_dlp.utils.MaxFileSizeReachedError:
+        await waiting_message.edit_text("⚠️ حجم الفيديو كبير جداً (أكبر من 50 ميجابايت). لا يمكن إرساله عبر البوت.")
     except Exception as e:
-        logger.error(f"Exception: {e}")
-        return False
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "⚡ مرحباً يا جوكر! البوت شغال وسريع وجاهز.\n\n"
-        "📁 أرسل لي ملف الـ **HTML** الأساسي كمستند (Document)."
-    )
-    context.user_data.clear()
-    return HTML_STATE
-
-async def receive_html(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    file = update.message.document
-    if not file:
-        await update.message.reply_text("❌ أرسل الملف كمستند (Document).")
-        return HTML_STATE
-
-    html_file = await file.get_file()
-    html_content = await html_file.download_as_bytearray()
-    context.user_data['html'] = html_content.decode('utf-8', errors='ignore')
-
-    reply_keyboard = [['نعم', 'لا']]
-    await update.message.reply_text(
-        "✅ استلمت الـ HTML.\n\n❓ **هل تريد دمج ملف CSS للموقع؟**",
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return ASK_CSS
-
-async def ask_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    answer = update.message.text
-    if answer == 'نعم':
-        await update.message.reply_text("🎨 أرسل ملف الـ **CSS** دلوقتي كمستند:", reply_markup=ReplyKeyboardRemove())
-        return CSS_STATE
-    elif answer == 'لا':
-        context.user_data['css'] = ""
-        reply_keyboard = [['نعم', 'لا']]
-        await update.message.reply_text(
-            "👍 تم تخطي الـ CSS.\n\n❓ **هل تريد دمج ملف JavaScript (JS)؟**",
-            reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return ASK_JS
-    else:
-        await update.message.reply_text("اختر نعم أو لا.")
-        return ASK_CSS
-
-async def receive_css(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    file = update.message.document
-    if not file:
-        await update.message.reply_text("❌ أرسل ملف CSS كمستند.")
-        return CSS_STATE
-
-    css_file = await file.get_file()
-    css_content = await css_file.download_as_bytearray()
-    context.user_data['css'] = css_content.decode('utf-8', errors='ignore')
-
-    reply_keyboard = [['نعم', 'لا']]
-    await update.message.reply_text(
-        "✅ استلمت الـ CSS.\n\n❓ **هل تريد دمج ملف JavaScript (JS)؟**",
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return ASK_JS
-
-async def ask_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    answer = update.message.text
-    if answer == 'نعم':
-        await update.message.reply_text("⚡ أرسل ملف الـ **JavaScript** كمستند:", reply_markup=ReplyKeyboardRemove())
-        return JS_STATE
-    elif answer == 'لا':
-        context.user_data['js'] = ""
-        return await finalize_and_deploy(update, context)
-    else:
-        await update.message.reply_text("اختر نعم أو لا.")
-        return ASK_JS
-
-async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    file = update.message.document
-    if not file:
-        await update.message.reply_text("❌ أرسل ملف JS كمستند.")
-        return JS_STATE
-
-    js_file = await file.get_file()
-    js_content = await js_file.download_as_bytearray()
-    context.user_data['js'] = js_content.decode('utf-8', errors='ignore')
-
-    return await finalize_and_deploy(update, context)
-
-async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("⏳ جاري الدمج الفوري وتحديث الرابط...", reply_markup=ReplyKeyboardRemove())
-    
-    html = context.user_data.get('html', '')
-    css = context.user_data.get('css', '')
-    js = context.user_data.get('js', '')
-
-    merged_content = f"""<!DOCTYPE html>
-<html lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Joker Project</title>
-    <style>{css}</style>
-</head>
-<body>
-{html}
-    <script>{js}</script>
-</body>
-</html>"""
-
-    success = upload_to_github_api(merged_content, "index.html")
-    site_url = get_page_url()
-    
-    if success:
-        await update.message.reply_text(
-            f"🚀 **يا جوكر تم نشر موقعك بنجاح وسرعة البرق!**\n\n"
-            f"🔗 الرابط المباشر أهو ابعته لأي حد:\n{site_url}\n\n"
-            f"📋 افتحه دلوقتي هتلاقيه شغال ومحدث فوراً!",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text("❌ جيت هب رفض الرفع. تأكد من إضافة سطر GITHUB_TOKEN في ملف الـ YAML.")
-        
-    context.user_data.clear()
-    return ConversationHandler.END
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=ReplyKeyboardRemove())
-    context.user_data.clear()
-    return ConversationHandler.END
+        logger.error(f"Download error: {e}")
+        await waiting_message.edit_text("❌ حصلت مشكلة أثناء التحميل! اتأكد إن اللينك شغال ومفتوح للعامة.")
 
 def main():
     if not TOKEN:
+        logger.error("❌ TOKEN مش موجود في الـ Environment Variables!")
         return
+        
+    # إنشاء فولدر التحميلات المؤقتة لو مش موجود
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+
     application = Application.builder().token(TOKEN).build()
-    
-    # تم تغيير الفلاتر هنا لـ ALL عشان نلغي خطأ الكراش القديم نهائياً
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            HTML_STATE: [MessageHandler(filters.Document.ALL & ~filters.COMMAND, receive_html)],
-            ASK_CSS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_css)],
-            CSS_STATE: [MessageHandler(filters.Document.ALL & ~filters.COMMAND, receive_css)],
-            ASK_JS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_js)],
-            JS_STATE: [MessageHandler(filters.Document.ALL & ~filters.COMMAND, receive_js)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    
-    application.add_handler(conv_handler)
+
+    application.add_handler(CommandHandler("start", start))
+    # البوت هيقرأ أي نص مبعوت ويشوف لو لينك هيحمله فوراً
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
+
     application.run_polling()
 
 if __name__ == '__main__':
