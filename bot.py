@@ -16,12 +16,11 @@ from telegram.ext import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# مراحل المحادثة
 HTML_STATE, ASK_CSS, CSS_STATE, ASK_JS, JS_STATE = range(5)
 
 TOKEN = os.getenv("TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or os.getenv("TOKEN")  # استخدام التوكن المتاح للرفع
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")  # بيجيب "user/repo" أوتوماتيك
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")  # بيجيب تلقائياً اسم حسابك/المستودع (مثال: gokermarke0-blip/222)
 
 def get_page_url():
     if GITHUB_REPOSITORY and "/" in GITHUB_REPOSITORY:
@@ -30,42 +29,46 @@ def get_page_url():
     return "https://gokermarke0-blip.github.io/222/"
 
 def upload_to_github_api(content, filename="index.html"):
-    """الرفع المباشر والضمون عبر GitHub API لتحديث الموقع فوراً"""
     if not GITHUB_REPOSITORY or not GITHUB_TOKEN:
-        logger.error("❌ ناقص إعدادات GITHUB_REPOSITORY أو GITHUB_TOKEN")
+        logger.error("❌ عذراً: GITHUB_TOKEN أو GITHUB_REPOSITORY مش مقروءين في السيرفر.")
         return False
         
     url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/contents/{filename}"
     headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
     }
     
-    # 1. بنشوف هل الملف موجود عشان نجيب الـ sha بتاعه (مهم جداً في جيت هب)
+    # محاولة جلب الـ sha للملف لو كان موجود مسبقاً للتحديث عليه
     sha = None
-    res = requests.get(url, headers=headers)
-    if res.status_code == 200:
-        sha = res.json().get("sha")
+    try:
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            sha = res.json().get("sha")
+    except Exception as e:
+        logger.error(f"Error getting file SHA: {e}")
         
-    # 2. تجهيز البيانات وتشفير الكود بـ Base64
     content_bytes = content.encode("utf-8")
     content_base64 = base64.b64encode(content_bytes).decode("utf-8")
     
     data = {
-        "message": "Update index.html via Telegram Bot API",
+        "message": "⚡ المطور جوكر: تحديث الـ index.html عبر البوت",
         "content": content_base64,
         "branch": "main"
     }
     if sha:
         data["sha"] = sha
 
-    # 3. إرسال الملف المدمج لجيت هب مباشرة
-    put_res = requests.put(url, headers=headers, json=data)
-    if put_res.status_code in [200, 201]:
-        logger.info("✅ تم تحديث الملف بنجاح عبر الـ API!")
-        return True
-    else:
-        logger.error(f"❌ فشل الرفع عبر الـ API: {put_res.text}")
+    try:
+        put_res = requests.put(url, headers=headers, json=data)
+        if put_res.status_code in [200, 201]:
+            logger.info("✅ تم رفع وتحديث الموقع بنجاح!")
+            return True
+        else:
+            logger.error(f"❌ جيت هب رفض الرفع. السبب: {put_res.text}")
+            return False
+    except Exception as e:
+        logger.error(f"حدث خطأ أثناء الاتصال بالـ API: {e}")
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -152,7 +155,7 @@ async def receive_js(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await finalize_and_deploy(update, context)
 
 async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("⏳ جاري دمج الأكواد وتحديث الموقع مباشرة على جيت هب...", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("⏳ جاري دمج الأكواد وتحديث موقعك على جيت هب صفحات...", reply_markup=ReplyKeyboardRemove())
     
     html = context.user_data.get('html', '')
     css = context.user_data.get('css', '')
@@ -163,7 +166,7 @@ async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Joker Project</title>
+    <title>Joker Live Project</title>
     <style>
 {css}
     </style>
@@ -176,20 +179,18 @@ async def finalize_and_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE
 </body>
 </html>"""
 
-    # رفع الملف فوراً عبر الـ API المضمون
     success = upload_to_github_api(merged_content, "index.html")
-    
     site_url = get_page_url()
     
     if success:
         await update.message.reply_text(
-            f"🚀 **يا جوكر تم دمج أكوادك وتحديث الموقع بنجاح بالـ API!**\n\n"
+            f"🚀 **يا جوكر تم دمج أكوادك وتحديث الموقع بنجاح!**\n\n"
             f"🔗 الرابط المباشر لموقعك هو:\n{site_url}\n\n"
-            f"📋 خده كوبي وافتحه، ثواني وجيت هب هيعرض التحديث الجديد علطول!",
+            f"📋 افتحه دلوقتي وهتلاقي تصميمك الجديد اشتغل علطول وجاب الملف الصح!",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("❌ حصلت مشكلة أثناء الرفع عبر الـ API، اتأكد من صلاحيات التوكن في الـ Actions.")
+        await update.message.reply_text("❌ جيت هب رفض الرفع. يرجى التأكد من تفعيل صلاحيات (Read and Write permissions) من إعدادات Actions -> General في المستودع.")
         
     context.user_data.clear()
     return ConversationHandler.END
